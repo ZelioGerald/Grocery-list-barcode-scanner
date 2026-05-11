@@ -11,6 +11,7 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "^3.0.2",
     "@supabase/supabase-js": "^2.105.4",
+    "babel-preset-expo": "^55.0.21",
     "expo": "~54.0.33",
     "expo-camera": "^55.0.18",
     "expo-constants": "^55.0.16",
@@ -22,7 +23,9 @@
     "nativewind": "^4.2.3",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-gesture-handler": "^2.31.2",
     "react-native-paper": "^5.15.2",
+    "react-native-reanimated": "^4.3.1",
     "react-native-safe-area-context": "^5.7.0",
     "react-native-screens": "^4.25.0",
     "tailwindcss": "^4.3.0",
