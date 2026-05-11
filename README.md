@@ -84,6 +84,23 @@ A mobile app for smart grocery list management with barcode scanning, product ca
    - Scan the QR code from the terminal
    - Or press `a` for Android emulator, `i` for iOS simulator
 
+## Troubleshooting
+
+### Cannot find module 'babel-preset-expo'
+If you encounter this error, make sure all dependencies are installed:
+```bash
+npm install --legacy-peer-deps
+```
+
+### Metro bundler cache issues
+If you experience strange errors, try clearing the cache:
+```bash
+npm start -- --clear
+```
+
+### Environment variables not loading
+Make sure your `.env` file is in the root directory and properly formatted. Restart the Metro bundler after changing environment variables.
+
 ## Development Status
 
 ### ✅ Phase 1 - Project Setup & Authentication (COMPLETED)
