@@ -1,154 +1,134 @@
+// Login screen
 import { useState } from 'react';
-import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
-import { TextInput, Button, Text, ActivityIndicator } from 'react-native-paper';
-import { useRouter, Link } from 'expo-router';
-import { isFirebaseConfigured, getAuth } from '../../lib/firebase';
-import { StatusBar } from 'expo-status-bar';
+import { View, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { TextInput, Button, Text, useTheme, HelperText } from 'react-native-paper';
+import { Link } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import useAuthStore from '../../store/authStore';
 
 export default function LoginScreen() {
+  const theme = useTheme();
+  const { login, isLoading, error, clearError } = useAuthStore();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [secureText, setSecureText] = useState(true);
-  const router = useRouter();
+  const [showPassword, setShowPassword] = useState(false);
+  const [localError, setLocalError] = useState('');
 
   const handleLogin = async () => {
-    if (!isFirebaseConfigured()) {
-      Alert.alert(
-        'Firebase Not Configured',
-        'Please configure Firebase credentials in your .env file and restart the app.'
-      );
+    // Clear previous errors
+    clearError();
+    setLocalError('');
+
+    // Validate inputs
+    if (!email.trim()) {
+      setLocalError('Email is required');
+      return;
+    }
+    if (!password) {
+      setLocalError('Password is required');
       return;
     }
 
-    const auth = getAuth();
-    if (!auth) {
-      Alert.alert('Error', 'Firebase is not initialized. Please restart the app.');
-      return;
-    }
-
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { signInWithEmailAndPassword } = await import('firebase/auth');
-      await signInWithEmailAndPassword(auth, email, password);
-      // Navigation handled by auth listener
-    } catch (error) {
-      console.error('Login error:', error);
-      let errorMessage = 'Failed to login. Please try again.';
-
-      if (error.code === 'auth/user-not-found') {
-        errorMessage = 'No account found with this email.';
-      } else if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Invalid email address.';
-      } else if (error.code === 'auth/invalid-credential') {
-        errorMessage = 'Invalid email or password.';
-      }
-
-      Alert.alert('Login Failed', errorMessage);
-    } finally {
-      setLoading(false);
+    const result = await login(email.trim(), password);
+    if (!result.success) {
+      setLocalError(getErrorMessage(result.error));
     }
   };
 
-  const handleGoogleSignIn = async () => {
-    Alert.alert(
-      'Coming Soon',
-      'Google Sign-In will be available in a future update. Please use email/password for now.'
-    );
+  // Convert Firebase error codes to user-friendly messages
+  const getErrorMessage = (errorCode) => {
+    if (errorCode?.includes('invalid-email')) {
+      return 'Please enter a valid email address';
+    }
+    if (errorCode?.includes('user-not-found') || errorCode?.includes('wrong-password') || errorCode?.includes('invalid-credential')) {
+      return 'Invalid email or password';
+    }
+    if (errorCode?.includes('too-many-requests')) {
+      return 'Too many attempts. Please try again later';
+    }
+    return 'Login failed. Please try again';
   };
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
+      style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
-      <StatusBar style="auto" />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.content}>
-          <View style={styles.header}>
-            <Text variant="displaySmall" style={styles.title}>
-              SmartCart
-            </Text>
-            <Text variant="bodyLarge" style={styles.subtitle}>
-              Your Smart Grocery Assistant
-            </Text>
-          </View>
+        {/* Header */}
+        <View style={styles.header}>
+          <Ionicons name="cart" size={80} color={theme.colors.primary} />
+          <Text variant="headlineLarge" style={[styles.title, { color: theme.colors.primary }]}>
+            SmartCart
+          </Text>
+          <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant }}>
+            Your smart grocery companion
+          </Text>
+        </View>
 
-          <View style={styles.form}>
-            <TextInput
-              label="Email"
-              value={email}
-              onChangeText={setEmail}
-              mode="outlined"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              style={styles.input}
-              disabled={loading}
-            />
+        {/* Form */}
+        <View style={styles.form}>
+          <TextInput
+            label="Email"
+            value={email}
+            onChangeText={setEmail}
+            mode="outlined"
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoComplete="email"
+            left={<TextInput.Icon icon="email" />}
+            style={styles.input}
+          />
 
-            <TextInput
-              label="Password"
-              value={password}
-              onChangeText={setPassword}
-              mode="outlined"
-              secureTextEntry={secureText}
-              autoCapitalize="none"
-              autoComplete="password"
-              style={styles.input}
-              disabled={loading}
-              right={
-                <TextInput.Icon
-                  icon={secureText ? 'eye' : 'eye-off'}
-                  onPress={() => setSecureText(!secureText)}
-                />
-              }
-            />
+          <TextInput
+            label="Password"
+            value={password}
+            onChangeText={setPassword}
+            mode="outlined"
+            secureTextEntry={!showPassword}
+            autoCapitalize="none"
+            left={<TextInput.Icon icon="lock" />}
+            right={
+              <TextInput.Icon
+                icon={showPassword ? 'eye-off' : 'eye'}
+                onPress={() => setShowPassword(!showPassword)}
+              />
+            }
+            style={styles.input}
+          />
 
-            <Button
-              mode="contained"
-              onPress={handleLogin}
-              style={styles.button}
-              disabled={loading}
-            >
-              {loading ? <ActivityIndicator color="#fff" /> : 'Login'}
+          {(localError || error) && (
+            <HelperText type="error" visible={true} style={styles.error}>
+              {localError || error}
+            </HelperText>
+          )}
+
+          <Button
+            mode="contained"
+            onPress={handleLogin}
+            loading={isLoading}
+            disabled={isLoading}
+            style={styles.button}
+            contentStyle={styles.buttonContent}
+          >
+            Log In
+          </Button>
+        </View>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+            Don't have an account?{' '}
+          </Text>
+          <Link href="/register" asChild>
+            <Button mode="text" compact>
+              Sign Up
             </Button>
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>OR</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <Button
-              mode="outlined"
-              onPress={handleGoogleSignIn}
-              style={styles.button}
-              icon="google"
-              disabled={loading}
-            >
-              Continue with Google
-            </Button>
-
-            <View style={styles.footer}>
-              <Text variant="bodyMedium">Don't have an account? </Text>
-              <Link href="/register" asChild>
-                <Text variant="bodyMedium" style={styles.link}>
-                  Sign Up
-                </Text>
-              </Link>
-            </View>
-          </View>
+          </Link>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -158,15 +138,11 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
   },
   scrollContent: {
     flexGrow: 1,
-  },
-  content: {
-    flex: 1,
-    padding: 24,
     justifyContent: 'center',
+    padding: 24,
   },
   header: {
     alignItems: 'center',
@@ -174,12 +150,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 8,
-  },
-  subtitle: {
-    color: '#666',
-    textAlign: 'center',
+    marginTop: 12,
   },
   form: {
     width: '100%',
@@ -187,30 +158,19 @@ const styles = StyleSheet.create({
   input: {
     marginBottom: 16,
   },
+  error: {
+    marginBottom: 8,
+  },
   button: {
-    marginBottom: 16,
+    marginTop: 8,
   },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 16,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#E0E0E0',
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: '#666',
+  buttonContent: {
+    paddingVertical: 8,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     marginTop: 24,
-  },
-  link: {
-    color: '#4CAF50',
-    fontWeight: 'bold',
   },
 });

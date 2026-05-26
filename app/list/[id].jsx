@@ -1,137 +1,140 @@
-import { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  ScrollView,
-} from 'react-native';
+// Individual list view screen
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
 import {
   Text,
   FAB,
-  ActivityIndicator,
+  useTheme,
   Chip,
+  ActivityIndicator,
+  Appbar,
+  Menu,
 } from 'react-native-paper';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../../store/authStore';
-import { subscribeToItems, getCategories } from '../../lib/firestore';
-import ItemCard from '../../components/ItemCard';
+import useAuthStore from '../../store/authStore';
+import { getList, subscribeToItems, getCategories, deleteItem, updateItem } from '../../lib/firestore';
+import ItemCard from '../../components/ui/ItemCard';
 
 export default function ListDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const theme = useTheme();
   const router = useRouter();
-  const user = useAuthStore((state) => state.user);
+  const { id } = useLocalSearchParams();
+  const { user } = useAuthStore();
+
+  const [list, setList] = useState(null);
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [menuVisible, setMenuVisible] = useState(false);
 
   useEffect(() => {
-    if (!user || !id) return;
+    let unsubscribe;
 
-    // Fetch categories
-    getCategories(user.uid).then((cats) => {
+    const loadData = async () => {
+      if (!user?.uid || !id) return;
+
+      setIsLoading(true);
+
+      // Load list details
+      const listData = await getList(user.uid, id);
+      setList(listData);
+
+      // Load categories
+      const cats = await getCategories(user.uid);
       setCategories(cats);
-    });
 
-    // Subscribe to items in real-time
-    const unsubscribe = subscribeToItems(user.uid, id, (fetchedItems) => {
-      setItems(fetchedItems);
-      setLoading(false);
-    });
+      // Subscribe to items
+      unsubscribe = subscribeToItems(user.uid, id, (itemsData) => {
+        setItems(itemsData);
+        setIsLoading(false);
+      });
+    };
 
-    return () => unsubscribe();
-  }, [user, id]);
+    loadData();
 
-  const filteredItems =
-    selectedCategory === 'All'
-      ? items
-      : items.filter((item) => item.category === selectedCategory);
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [id, user?.uid]);
 
-  const groupedItems = filteredItems.reduce((groups, item) => {
-    const category = item.category || 'Other';
-    if (!groups[category]) {
-      groups[category] = [];
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setTimeout(() => setRefreshing(false), 500);
+  }, []);
+
+  const handleToggleItem = async (itemId, currentStatus) => {
+    if (user?.uid && id) {
+      const newStatus = currentStatus === 'in-cart' ? 'out-of-stock' : 'in-cart';
+      await updateItem(user.uid, id, itemId, { status: newStatus });
     }
-    groups[category].push(item);
-    return groups;
-  }, {});
-
-  const renderCategoryFilter = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.filterContainer}
-      contentContainerStyle={styles.filterContent}
-    >
-      <Chip
-        selected={selectedCategory === 'All'}
-        onPress={() => setSelectedCategory('All')}
-        style={styles.filterChip}
-      >
-        All ({items.length})
-      </Chip>
-      {categories.map((cat) => {
-        const count = items.filter((item) => item.category === cat.name).length;
-        if (count === 0) return null;
-        return (
-          <Chip
-            key={cat.id}
-            selected={selectedCategory === cat.name}
-            onPress={() => setSelectedCategory(cat.name)}
-            style={styles.filterChip}
-          >
-            {cat.name} ({count})
-          </Chip>
-        );
-      })}
-    </ScrollView>
-  );
-
-  const renderCategoryGroup = (category, categoryItems) => {
-    const categoryData = categories.find((cat) => cat.name === category);
-    const iconName = categoryData?.icon || 'grid-outline';
-    const color = categoryData?.color || '#607D8B';
-
-    return (
-      <View key={category} style={styles.categoryGroup}>
-        <View style={styles.categoryHeader}>
-          <Ionicons name={iconName} size={24} color={color} />
-          <Text variant="titleMedium" style={[styles.categoryTitle, { color }]}>
-            {category}
-          </Text>
-          <Text variant="bodySmall" style={styles.categoryCount}>
-            {categoryItems.length} items
-          </Text>
-        </View>
-        <View style={styles.categoryItems}>
-          {categoryItems.map((item) => (
-            <ItemCard key={item.id} item={item} listId={id} />
-          ))}
-        </View>
-      </View>
-    );
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="cart-outline" size={80} color="#CCC" />
-      <Text variant="headlineSmall" style={styles.emptyTitle}>
-        No Items Yet
-      </Text>
-      <Text variant="bodyLarge" style={styles.emptyText}>
-        Add items to your list by tapping the + button
-      </Text>
-    </View>
-  );
+  const handleDeleteItem = async (itemId) => {
+    if (user?.uid && id) {
+      await deleteItem(user.uid, id, itemId);
+    }
+  };
 
-  if (loading) {
+  const getCategoryInfo = (categoryName) => {
+    return categories.find(c => c.name === categoryName) || {
+      name: 'Other',
+      icon: 'grid-outline',
+      color: '#607D8B',
+    };
+  };
+
+  // Get unique categories from items
+  const itemCategories = useMemo(() => {
+    const cats = [...new Set(items.map(item => item.category || 'Other'))];
+    return ['All', ...cats];
+  }, [items]);
+
+  // Filter items by category
+  const filteredItems = useMemo(() => {
+    if (selectedCategory === 'All') return items;
+    return items.filter(item => (item.category || 'Other') === selectedCategory);
+  }, [items, selectedCategory]);
+
+  // Group items by category
+  const groupedItems = useMemo(() => {
+    const groups = {};
+    filteredItems.forEach(item => {
+      const category = item.category || 'Other';
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+      groups[category].push(item);
+    });
+    return Object.entries(groups).map(([category, categoryItems]) => ({
+      category,
+      categoryInfo: getCategoryInfo(category),
+      data: categoryItems,
+    }));
+  }, [filteredItems, categories]);
+
+  if (isLoading) {
     return (
       <>
         <Stack.Screen options={{ title: 'Loading...' }} />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4CAF50" />
+        <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </>
+    );
+  }
+
+  if (!list) {
+    return (
+      <>
+        <Stack.Screen options={{ title: 'Not Found' }} />
+        <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="alert-circle-outline" size={60} color={theme.colors.error} />
+          <Text variant="titleMedium" style={{ marginTop: 16 }}>
+            List not found
+          </Text>
         </View>
       </>
     );
@@ -139,25 +142,122 @@ export default function ListDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Grocery List' }} />
-      <View style={styles.container}>
-        {categories.length > 0 && items.length > 0 && renderCategoryFilter()}
+      <Stack.Screen
+        options={{
+          title: list.name,
+          headerRight: () => (
+            <Menu
+              visible={menuVisible}
+              onDismiss={() => setMenuVisible(false)}
+              anchor={
+                <Appbar.Action
+                  icon="dots-vertical"
+                  onPress={() => setMenuVisible(true)}
+                />
+              }
+            >
+              <Menu.Item
+                leadingIcon="pencil"
+                title="Edit List"
+                onPress={() => {
+                  setMenuVisible(false);
+                  // Handle edit
+                }}
+              />
+              <Menu.Item
+                leadingIcon="share"
+                title="Share List"
+                onPress={() => {
+                  setMenuVisible(false);
+                  // Handle share
+                }}
+              />
+            </Menu>
+          ),
+        }}
+      />
 
-        {items.length === 0 ? (
-          renderEmptyState()
-        ) : (
-          <ScrollView style={styles.scrollView}>
-            {Object.entries(groupedItems).map(([category, categoryItems]) =>
-              renderCategoryGroup(category, categoryItems)
-            )}
-          </ScrollView>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        {/* Category Filter */}
+        {itemCategories.length > 1 && (
+          <View style={styles.filterContainer}>
+            <FlatList
+              horizontal
+              data={itemCategories}
+              keyExtractor={(item) => item}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item: cat }) => (
+                <Chip
+                  selected={selectedCategory === cat}
+                  onPress={() => setSelectedCategory(cat)}
+                  style={styles.filterChip}
+                  showSelectedCheck={false}
+                >
+                  {cat}
+                </Chip>
+              )}
+              contentContainerStyle={styles.filterScroll}
+            />
+          </View>
         )}
 
+        {/* Items List */}
+        {filteredItems.length === 0 ? (
+          <View style={styles.centered}>
+            <Ionicons name="cart-outline" size={60} color={theme.colors.primary} />
+            <Text variant="titleMedium" style={{ marginTop: 16 }}>
+              {selectedCategory === 'All' ? 'No items yet' : `No ${selectedCategory} items`}
+            </Text>
+            <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant, marginTop: 8 }}>
+              Tap the + button to add items
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={groupedItems}
+            keyExtractor={(item) => item.category}
+            refreshControl={
+              <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            }
+            renderItem={({ item: group }) => (
+              <View style={styles.categorySection}>
+                <View style={styles.categoryHeader}>
+                  <Ionicons
+                    name={group.categoryInfo.icon}
+                    size={20}
+                    color={group.categoryInfo.color}
+                  />
+                  <Text
+                    variant="titleSmall"
+                    style={[styles.categoryTitle, { color: group.categoryInfo.color }]}
+                  >
+                    {group.category}
+                  </Text>
+                  <Chip compact style={styles.countChip}>
+                    {group.data.length}
+                  </Chip>
+                </View>
+                {group.data.map((item) => (
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    onToggle={() => handleToggleItem(item.id, item.status)}
+                    onDelete={() => handleDeleteItem(item.id)}
+                    onPress={() => router.push(`/item/${item.id}?listId=${id}`)}
+                  />
+                ))}
+              </View>
+            )}
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+
+        {/* Add Item FAB */}
         <FAB
           icon="plus"
-          style={styles.fab}
-          onPress={() => router.push('/item/new?listId=' + id)}
-          label="Add Item"
+          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          color={theme.colors.onPrimary}
+          onPress={() => router.push('/item/new')}
         />
       </View>
     </>
@@ -167,70 +267,47 @@ export default function ListDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
   },
-  loadingContainer: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    padding: 24,
   },
   filterContainer: {
-    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
-  filterContent: {
-    padding: 12,
-    gap: 8,
+  filterScroll: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   filterChip: {
-    marginRight: 8,
+    marginHorizontal: 4,
   },
-  scrollView: {
-    flex: 1,
+  listContent: {
+    paddingBottom: 100,
   },
-  categoryGroup: {
-    marginBottom: 24,
-    paddingHorizontal: 16,
+  categorySection: {
+    marginTop: 8,
   },
   categoryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
   },
   categoryTitle: {
-    marginLeft: 8,
-    fontWeight: 'bold',
+    fontWeight: '600',
     flex: 1,
   },
-  categoryCount: {
-    color: '#999',
-  },
-  categoryItems: {
-    gap: 12,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
-  },
-  emptyTitle: {
-    marginTop: 16,
-    marginBottom: 8,
-    color: '#666',
-  },
-  emptyText: {
-    color: '#999',
-    textAlign: 'center',
+  countChip: {
+    height: 24,
   },
   fab: {
     position: 'absolute',
-    margin: 16,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#4CAF50',
+    right: 16,
+    bottom: 16,
   },
 });

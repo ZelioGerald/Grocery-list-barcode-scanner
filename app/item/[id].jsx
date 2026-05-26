@@ -1,6 +1,6 @@
-// Add new item screen
+// Item detail/edit screen
 import { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import {
   TextInput,
   Button,
@@ -9,11 +9,15 @@ import {
   Text,
   HelperText,
   Menu,
-  Divider,
+  ActivityIndicator,
+  Card,
+  Chip,
 } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import useAuthStore from '../../store/authStore';
 import useListStore from '../../store/listStore';
+import { getItem } from '../../lib/firestore';
 
 const UNITS = [
   { value: 'pcs', label: 'pcs' },
@@ -23,36 +27,67 @@ const UNITS = [
   { value: 'ml', label: 'ml' },
 ];
 
-export default function NewItemScreen() {
+const STATUSES = [
+  { value: 'out-of-stock', label: 'Out of Stock', color: '#F44336' },
+  { value: 'in-stock', label: 'In Stock', color: '#4CAF50' },
+  { value: 'in-cart', label: 'In Cart', color: '#2196F3' },
+];
+
+export default function ItemDetailScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const { id, listId } = useLocalSearchParams();
   const { user } = useAuthStore();
-  const { activeListId, categories, addItem } = useListStore();
+  const { activeListId, categories, editItem, removeItem } = useListStore();
 
-  // Pre-fill from scanner or URL params
-  const [name, setName] = useState(params.name || '');
-  const [brand, setBrand] = useState(params.brand || '');
-  const [category, setCategory] = useState(params.category || 'Other');
+  const effectiveListId = listId || activeListId;
+
+  const [item, setItem] = useState(null);
+  const [isLoadingItem, setIsLoadingItem] = useState(true);
+
+  // Form state
+  const [name, setName] = useState('');
+  const [brand, setBrand] = useState('');
+  const [category, setCategory] = useState('Other');
   const [quantity, setQuantity] = useState('1');
   const [unit, setUnit] = useState('pcs');
   const [notes, setNotes] = useState('');
-  const [barcode, setBarcode] = useState(params.barcode || '');
-  const [imageURL, setImageURL] = useState(params.imageURL || '');
+  const [status, setStatus] = useState('out-of-stock');
 
   const [categoryMenuVisible, setCategoryMenuVisible] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
+  useEffect(() => {
+    loadItem();
+  }, [id, effectiveListId, user?.uid]);
+
+  const loadItem = async () => {
+    if (!user?.uid || !effectiveListId || !id) return;
+
+    setIsLoadingItem(true);
+    try {
+      const itemData = await getItem(user.uid, effectiveListId, id);
+      if (itemData) {
+        setItem(itemData);
+        setName(itemData.name || '');
+        setBrand(itemData.brand || '');
+        setCategory(itemData.category || 'Other');
+        setQuantity(String(itemData.quantity || 1));
+        setUnit(itemData.unit || 'pcs');
+        setNotes(itemData.notes || '');
+        setStatus(itemData.status || 'out-of-stock');
+      }
+    } catch (err) {
+      setError('Failed to load item');
+    } finally {
+      setIsLoadingItem(false);
+    }
+  };
+
   const handleSave = async () => {
-    // Validate
     if (!name.trim()) {
       setError('Item name is required');
-      return;
-    }
-
-    if (!activeListId) {
-      setError('No active list selected. Please create a list first.');
       return;
     }
 
@@ -67,24 +102,62 @@ export default function NewItemScreen() {
         quantity: parseInt(quantity) || 1,
         unit,
         notes: notes.trim() || null,
-        barcode: barcode || null,
-        imageURL: imageURL || null,
-        status: 'out-of-stock',
+        status,
       };
 
-      const result = await addItem(user.uid, activeListId, itemData);
+      const result = await editItem(user.uid, effectiveListId, id, itemData);
 
       if (result.success) {
         router.back();
       } else {
-        setError(result.error || 'Failed to add item');
+        setError(result.error || 'Failed to update item');
       }
     } catch (err) {
-      setError('Failed to add item. Please try again.');
+      setError('Failed to update item. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
+
+  const handleDelete = () => {
+    Alert.alert(
+      'Delete Item',
+      `Are you sure you want to delete "${name}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            await removeItem(user.uid, effectiveListId, id);
+            router.back();
+          },
+        },
+      ]
+    );
+  };
+
+  if (isLoadingItem) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+      </View>
+    );
+  }
+
+  if (!item) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <Ionicons name="alert-circle-outline" size={60} color={theme.colors.error} />
+        <Text variant="titleMedium" style={{ marginTop: 16 }}>
+          Item not found
+        </Text>
+        <Button mode="contained" onPress={() => router.back()} style={{ marginTop: 16 }}>
+          Go Back
+        </Button>
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -95,13 +168,37 @@ export default function NewItemScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
+        {/* Status */}
+        <Card style={styles.statusCard} mode="outlined">
+          <Card.Content>
+            <Text variant="labelMedium" style={{ marginBottom: 8 }}>
+              Status
+            </Text>
+            <View style={styles.statusButtons}>
+              {STATUSES.map((s) => (
+                <Chip
+                  key={s.value}
+                  selected={status === s.value}
+                  onPress={() => setStatus(s.value)}
+                  style={[
+                    styles.statusChip,
+                    status === s.value && { backgroundColor: s.color + '20' },
+                  ]}
+                  textStyle={status === s.value ? { color: s.color } : {}}
+                >
+                  {s.label}
+                </Chip>
+              ))}
+            </View>
+          </Card.Content>
+        </Card>
+
         {/* Item Name */}
         <TextInput
           label="Item Name *"
           value={name}
           onChangeText={setName}
           mode="outlined"
-          placeholder="e.g., Milk, Bread, Apples"
           style={styles.input}
         />
 
@@ -111,7 +208,6 @@ export default function NewItemScreen() {
           value={brand}
           onChangeText={setBrand}
           mode="outlined"
-          placeholder="e.g., Organic Valley"
           style={styles.input}
         />
 
@@ -175,17 +271,16 @@ export default function NewItemScreen() {
           value={notes}
           onChangeText={setNotes}
           mode="outlined"
-          placeholder="e.g., Get the low-fat version"
           multiline
           numberOfLines={3}
           style={styles.input}
         />
 
-        {/* Barcode (if scanned) */}
-        {barcode && (
+        {/* Barcode info */}
+        {item.barcode && (
           <TextInput
             label="Barcode"
-            value={barcode}
+            value={item.barcode}
             mode="outlined"
             editable={false}
             style={styles.input}
@@ -215,9 +310,20 @@ export default function NewItemScreen() {
             disabled={isLoading}
             style={styles.actionButton}
           >
-            Add Item
+            Save Changes
           </Button>
         </View>
+
+        {/* Delete Button */}
+        <Button
+          mode="text"
+          onPress={handleDelete}
+          textColor={theme.colors.error}
+          icon="delete"
+          style={styles.deleteButton}
+        >
+          Delete Item
+        </Button>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -227,9 +333,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  statusCard: {
+    marginBottom: 16,
+  },
+  statusButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  statusChip: {
+    borderRadius: 8,
   },
   input: {
     marginBottom: 16,
@@ -262,5 +385,8 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     flex: 1,
+  },
+  deleteButton: {
+    marginTop: 24,
   },
 });

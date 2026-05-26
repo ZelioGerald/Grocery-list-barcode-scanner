@@ -1,19 +1,25 @@
+// Tab navigation layout
 import { Tabs } from 'expo-router';
+import { useTheme } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function TabsLayout() {
+  const theme = useTheme();
+
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: '#4CAF50',
-        tabBarInactiveTintColor: '#666',
+        tabBarActiveTintColor: theme.colors.primary,
+        tabBarInactiveTintColor: theme.colors.onSurfaceVariant,
+        tabBarStyle: {
+          backgroundColor: theme.colors.surface,
+          borderTopColor: theme.colors.surfaceVariant,
+        },
         headerStyle: {
-          backgroundColor: '#4CAF50',
+          backgroundColor: theme.colors.surface,
         },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        },
+        headerTintColor: theme.colors.onSurface,
+        headerShadowVisible: false,
       }}
     >
       <Tabs.Screen
@@ -21,7 +27,7 @@ export default function TabsLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home-outline" size={size} color={color} />
+            <Ionicons name="home" size={size} color={color} />
           ),
         }}
       />
@@ -30,7 +36,7 @@ export default function TabsLayout() {
         options={{
           title: 'Lists',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="list-outline" size={size} color={color} />
+            <Ionicons name="list" size={size} color={color} />
           ),
         }}
       />
@@ -39,7 +45,7 @@ export default function TabsLayout() {
         options={{
           title: 'Scan',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="scan-outline" size={size} color={color} />
+            <Ionicons name="barcode" size={size} color={color} />
           ),
         }}
       />
@@ -48,7 +54,7 @@ export default function TabsLayout() {
         options={{
           title: 'Pantry',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="archive-outline" size={size} color={color} />
+            <Ionicons name="cube" size={size} color={color} />
           ),
         }}
       />
@@ -57,7 +63,7 @@ export default function TabsLayout() {
         options={{
           title: 'Settings',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
+            <Ionicons name="settings" size={size} color={color} />
           ),
         }}
       />

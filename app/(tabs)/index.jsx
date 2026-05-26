@@ -1,286 +1,261 @@
-import { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import {
-  Text,
-  FAB,
-  ActivityIndicator,
-  Button,
-  Card,
-} from 'react-native-paper';
+// Home screen - shows active list
+import { useEffect, useCallback } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl } from 'react-native';
+import { Text, FAB, useTheme, Card, Chip, ActivityIndicator, Button } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../../store/authStore';
-import { useListStore } from '../../store/listStore';
-import { subscribeToItems, getCategories, subscribeToLists } from '../../lib/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import ItemCard from '../../components/ItemCard';
+import useAuthStore from '../../store/authStore';
+import useListStore from '../../store/listStore';
+import ItemCard from '../../components/ui/ItemCard';
 
 export default function HomeScreen() {
+  const theme = useTheme();
   const router = useRouter();
-  const user = useAuthStore((state) => state.user);
-  const { lists, setLists, activeListId, setActiveListId } = useListStore();
-  const [items, setItems] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeList, setActiveList] = useState(null);
+  const { user } = useAuthStore();
+  const {
+    activeList,
+    items,
+    categories,
+    isLoading,
+    initialize,
+    toggleItemStatus,
+    removeItem,
+  } = useListStore();
+
+  const [refreshing, setRefreshing] = React.useState(false);
 
   useEffect(() => {
-    if (!user) return;
-
-    // Load active list ID from AsyncStorage
-    AsyncStorage.getItem('activeListId').then((id) => {
-      if (id) setActiveListId(id);
-    });
-
-    // Subscribe to lists
-    const unsubscribeLists = subscribeToLists(user.uid, (fetchedLists) => {
-      setLists(fetchedLists);
-
-      // If no active list is set, use the first one
-      if (!activeListId && fetchedLists.length > 0) {
-        const firstList = fetchedLists[0];
-        const firstListId = firstList.listId || firstList.id;
-        setActiveListId(firstListId);
-        AsyncStorage.setItem('activeListId', firstListId);
-      }
-    });
-
-    // Fetch categories
-    getCategories(user.uid).then((cats) => {
-      setCategories(cats);
-    });
-
-    return () => unsubscribeLists();
-  }, [user]);
-
-  useEffect(() => {
-    if (!user || !activeListId) {
-      setLoading(false);
-      return;
+    if (user?.uid) {
+      initialize(user.uid);
     }
+  }, [user?.uid]);
 
-    // Find active list info
-    const list = lists.find(
-      (l) => l.listId === activeListId || l.id === activeListId
-    );
-    setActiveList(list);
-
-    // Subscribe to items in active list
-    const unsubscribeItems = subscribeToItems(
-      user.uid,
-      activeListId,
-      (fetchedItems) => {
-        setItems(fetchedItems);
-        setLoading(false);
-      }
-    );
-
-    return () => unsubscribeItems();
-  }, [user, activeListId, lists]);
-
-  const groupedItems = items.reduce((groups, item) => {
-    const category = item.category || 'Other';
-    if (!groups[category]) {
-      groups[category] = [];
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    if (user?.uid) {
+      await initialize(user.uid);
     }
-    groups[category].push(item);
-    return groups;
-  }, {});
+    setRefreshing(false);
+  }, [user?.uid]);
 
-  const renderCategoryGroup = (category, categoryItems) => {
-    const categoryData = categories.find((cat) => cat.name === category);
-    const iconName = categoryData?.icon || 'grid-outline';
-    const color = categoryData?.color || '#607D8B';
-
-    return (
-      <View key={category} style={styles.categoryGroup}>
-        <View style={styles.categoryHeader}>
-          <Ionicons name={iconName} size={24} color={color} />
-          <Text variant="titleMedium" style={[styles.categoryTitle, { color }]}>
-            {category}
-          </Text>
-          <Text variant="bodySmall" style={styles.categoryCount}>
-            {categoryItems.length} items
-          </Text>
-        </View>
-        <View style={styles.categoryItems}>
-          {categoryItems.map((item) => (
-            <ItemCard key={item.id} item={item} listId={activeListId} />
-          ))}
-        </View>
-      </View>
-    );
+  const handleToggleItem = async (itemId, currentStatus) => {
+    if (user?.uid && activeList?.id) {
+      await toggleItemStatus(user.uid, activeList.id, itemId, currentStatus);
+    }
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="cart-outline" size={80} color="#CCC" />
-      <Text variant="headlineSmall" style={styles.emptyTitle}>
-        {lists.length === 0 ? 'No Lists Yet' : 'List is Empty'}
-      </Text>
-      <Text variant="bodyLarge" style={styles.emptyText}>
-        {lists.length === 0
-          ? 'Create your first grocery list to get started'
-          : 'Add items to your list by tapping the + button'}
-      </Text>
-      {lists.length === 0 && (
+  const handleDeleteItem = async (itemId) => {
+    if (user?.uid && activeList?.id) {
+      await removeItem(user.uid, activeList.id, itemId);
+    }
+  };
+
+  const getCategoryInfo = (categoryName) => {
+    return categories.find(c => c.name === categoryName) || {
+      name: 'Other',
+      icon: 'grid-outline',
+      color: '#607D8B',
+    };
+  };
+
+  // Group items by category
+  const groupedItems = React.useMemo(() => {
+    const groups = {};
+    items.forEach(item => {
+      const category = item.category || 'Other';
+      if (!groups[category]) {
+        groups[category] = [];
+      }
+      groups[category].push(item);
+    });
+    return Object.entries(groups).map(([category, categoryItems]) => ({
+      category,
+      categoryInfo: getCategoryInfo(category),
+      data: categoryItems,
+    }));
+  }, [items, categories]);
+
+  if (isLoading && !activeList) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ marginTop: 16 }}>Loading your list...</Text>
+      </View>
+    );
+  }
+
+  // Empty state - no active list
+  if (!activeList) {
+    return (
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <Ionicons name="list-outline" size={80} color={theme.colors.primary} />
+        <Text variant="headlineSmall" style={styles.emptyTitle}>
+          No Lists Yet
+        </Text>
+        <Text variant="bodyMedium" style={[styles.emptySubtitle, { color: theme.colors.onSurfaceVariant }]}>
+          Create your first grocery list to get started
+        </Text>
         <Button
           mode="contained"
           onPress={() => router.push('/lists')}
-          style={styles.emptyButton}
+          style={{ marginTop: 24 }}
+          icon="plus"
         >
           Create List
         </Button>
-      )}
-    </View>
-  );
+      </View>
+    );
+  }
 
-  if (loading) {
+  // Empty state - no items in list
+  if (items.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <Card style={styles.headerCard} mode="elevated">
+          <Card.Content>
+            <Text variant="titleLarge">{activeList.name}</Text>
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+              {activeList.itemCount || 0} items
+            </Text>
+          </Card.Content>
+        </Card>
+
+        <View style={styles.centered}>
+          <Ionicons name="cart-outline" size={80} color={theme.colors.primary} />
+          <Text variant="headlineSmall" style={styles.emptyTitle}>
+            Your List is Empty
+          </Text>
+          <Text variant="bodyMedium" style={[styles.emptySubtitle, { color: theme.colors.onSurfaceVariant }]}>
+            Scan a barcode or add items manually
+          </Text>
+        </View>
+
+        <FAB
+          icon="plus"
+          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          color={theme.colors.onPrimary}
+          onPress={() => router.push('/item/new')}
+        />
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      {activeList && (
-        <Card style={styles.headerCard} mode="elevated">
-          <Card.Content>
-            <View style={styles.headerContent}>
-              <View style={styles.headerInfo}>
-                <Text variant="headlineSmall" style={styles.headerTitle}>
-                  {activeList.name}
-                </Text>
-                <Text variant="bodyMedium" style={styles.headerMeta}>
-                  {items.length} items • Active List
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() =>
-                  router.push(`/list/${activeList.listId || activeList.id}`)
-                }
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* Header Card */}
+      <Card style={styles.headerCard} mode="elevated">
+        <Card.Content>
+          <Text variant="titleLarge">{activeList.name}</Text>
+          <View style={styles.statsRow}>
+            <Chip icon="cart" compact style={styles.statChip}>
+              {items.filter(i => i.status === 'in-cart').length} in cart
+            </Chip>
+            <Chip icon="checkbox-blank-outline" compact style={styles.statChip}>
+              {items.filter(i => i.status !== 'in-cart').length} remaining
+            </Chip>
+          </View>
+        </Card.Content>
+      </Card>
+
+      {/* Items List */}
+      <FlatList
+        data={groupedItems}
+        keyExtractor={(item) => item.category}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+        renderItem={({ item: group }) => (
+          <View style={styles.categorySection}>
+            <View style={styles.categoryHeader}>
+              <Ionicons
+                name={group.categoryInfo.icon}
+                size={20}
+                color={group.categoryInfo.color}
+              />
+              <Text
+                variant="titleSmall"
+                style={[styles.categoryTitle, { color: group.categoryInfo.color }]}
               >
-                <Ionicons name="chevron-forward" size={24} color="#4CAF50" />
-              </TouchableOpacity>
+                {group.category}
+              </Text>
             </View>
-          </Card.Content>
-        </Card>
-      )}
+            {group.data.map((item) => (
+              <ItemCard
+                key={item.id}
+                item={item}
+                onToggle={() => handleToggleItem(item.id, item.status)}
+                onDelete={() => handleDeleteItem(item.id)}
+                onPress={() => router.push(`/item/${item.id}?listId=${activeList.id}`)}
+              />
+            ))}
+          </View>
+        )}
+        contentContainerStyle={styles.listContent}
+      />
 
-      {items.length === 0 ? (
-        renderEmptyState()
-      ) : (
-        <ScrollView style={styles.scrollView}>
-          {Object.entries(groupedItems).map(([category, categoryItems]) =>
-            renderCategoryGroup(category, categoryItems)
-          )}
-          <View style={styles.bottomPadding} />
-        </ScrollView>
-      )}
-
-      {activeListId && (
-        <FAB
-          icon="plus"
-          style={styles.fab}
-          onPress={() => router.push('/item/new?listId=' + activeListId)}
-          label="Add Item"
-        />
-      )}
+      {/* Add Item FAB */}
+      <FAB
+        icon="plus"
+        style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+        color={theme.colors.onPrimary}
+        onPress={() => router.push('/item/new')}
+      />
     </View>
   );
 }
 
+// Need to import React for useMemo and useState
+import React from 'react';
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
   },
-  loadingContainer: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    padding: 24,
   },
   headerCard: {
     margin: 16,
     marginBottom: 8,
-    backgroundColor: '#fff',
   },
-  headerContent: {
+  statsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
   },
-  headerInfo: {
-    flex: 1,
+  statChip: {
+    height: 28,
   },
-  headerTitle: {
-    fontWeight: 'bold',
-    color: '#4CAF50',
-    marginBottom: 4,
+  listContent: {
+    paddingBottom: 100,
   },
-  headerMeta: {
-    color: '#666',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  categoryGroup: {
-    marginBottom: 24,
-    paddingHorizontal: 16,
+  categorySection: {
+    marginBottom: 8,
   },
   categoryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 16,
-    marginBottom: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
   },
   categoryTitle: {
-    marginLeft: 8,
-    fontWeight: 'bold',
-    flex: 1,
-  },
-  categoryCount: {
-    color: '#999',
-  },
-  categoryItems: {
-    gap: 12,
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 32,
+    fontWeight: '600',
   },
   emptyTitle: {
     marginTop: 16,
-    marginBottom: 8,
-    color: '#666',
+    fontWeight: 'bold',
   },
-  emptyText: {
-    color: '#999',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  emptyButton: {
+  emptySubtitle: {
     marginTop: 8,
-  },
-  bottomPadding: {
-    height: 80,
+    textAlign: 'center',
   },
   fab: {
     position: 'absolute',
-    margin: 16,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#4CAF50',
+    right: 16,
+    bottom: 16,
   },
 });

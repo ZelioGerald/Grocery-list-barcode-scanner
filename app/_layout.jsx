@@ -1,221 +1,109 @@
-import 'react-native-gesture-handler';
+// Root layout for SmartCart app
 import { useEffect, useState } from 'react';
-import { Slot, useRouter, useSegments } from 'expo-router';
-import { PaperProvider, Text } from 'react-native-paper';
-import { useAuthStore } from '../store/authStore';
-import { View, ActivityIndicator, StyleSheet, ScrollView } from 'react-native';
-import { isFirebaseConfigured, initializeFirebase, getAuth } from '../lib/firebase';
+import { Stack } from 'expo-router';
+import { PaperProvider, MD3LightTheme, MD3DarkTheme } from 'react-native-paper';
+import { StatusBar } from 'expo-status-bar';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { View, ActivityIndicator, useColorScheme } from 'react-native';
+import useAuthStore from '../store/authStore';
 
-function ConfigurationScreen() {
-  return (
-    <ScrollView contentContainerStyle={styles.configContainer}>
-      <View style={styles.configContent}>
-        <Text variant="headlineMedium" style={styles.configTitle}>
-          ⚠️ Firebase Not Configured
-        </Text>
-        <Text variant="bodyLarge" style={styles.configText}>
-          Welcome to SmartCart! To get started, you need to configure Firebase.
-        </Text>
-        <View style={styles.configSteps}>
-          <Text variant="titleMedium" style={styles.configStepTitle}>
-            Setup Steps:
-          </Text>
-          <Text variant="bodyMedium" style={styles.configStep}>
-            1. Create a Firebase project at firebase.google.com
-          </Text>
-          <Text variant="bodyMedium" style={styles.configStep}>
-            2. Enable Firestore Database and Authentication
-          </Text>
-          <Text variant="bodyMedium" style={styles.configStep}>
-            3. Copy your Firebase config values
-          </Text>
-          <Text variant="bodyMedium" style={styles.configStep}>
-            4. Create a .env file in the project root
-          </Text>
-          <Text variant="bodyMedium" style={styles.configStep}>
-            5. Add your Firebase credentials to .env
-          </Text>
-          <Text variant="bodyMedium" style={styles.configStep}>
-            6. Restart the app (npm start -- --clear)
-          </Text>
-        </View>
-        <View style={styles.configExample}>
-          <Text variant="titleSmall" style={styles.configExampleTitle}>
-            .env file format:
-          </Text>
-          <View style={styles.codeBlock}>
-            <Text style={styles.codeText}>
-              EXPO_PUBLIC_FIREBASE_API_KEY=AIza...{'\n'}
-              EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your-app.firebaseapp.com{'\n'}
-              EXPO_PUBLIC_FIREBASE_PROJECT_ID=your-project-id{'\n'}
-              EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your-app.appspot.com{'\n'}
-              EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789{'\n'}
-              EXPO_PUBLIC_FIREBASE_APP_ID=1:123:web:abc123
-            </Text>
-          </View>
-        </View>
-        <Text variant="bodySmall" style={styles.configHint}>
-          See SETUP_GUIDE.md for detailed instructions
-        </Text>
-      </View>
-    </ScrollView>
-  );
-}
+// Custom theme colors (green primary for grocery app)
+const customLightTheme = {
+  ...MD3LightTheme,
+  colors: {
+    ...MD3LightTheme.colors,
+    primary: '#4CAF50',
+    primaryContainer: '#C8E6C9',
+    secondary: '#2196F3',
+    secondaryContainer: '#BBDEFB',
+    error: '#F44336',
+    errorContainer: '#FFCDD2',
+    background: '#FAFAFA',
+    surface: '#FFFFFF',
+    surfaceVariant: '#F5F5F5',
+  },
+};
+
+const customDarkTheme = {
+  ...MD3DarkTheme,
+  colors: {
+    ...MD3DarkTheme.colors,
+    primary: '#81C784',
+    primaryContainer: '#388E3C',
+    secondary: '#64B5F6',
+    secondaryContainer: '#1976D2',
+    error: '#EF5350',
+    errorContainer: '#C62828',
+    background: '#121212',
+    surface: '#1E1E1E',
+    surfaceVariant: '#2C2C2C',
+  },
+};
 
 export default function RootLayout() {
-  const router = useRouter();
-  const segments = useSegments();
-  const { user, loading, setUser, clearUser, setLoading } = useAuthStore();
-  const [firebaseReady, setFirebaseReady] = useState(false);
-  const [configValid, setConfigValid] = useState(true);
+  const colorScheme = useColorScheme();
+  const theme = colorScheme === 'dark' ? customDarkTheme : customLightTheme;
+
+  const { initializeAuth, isLoading, user } = useAuthStore();
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
-    // Check if Firebase is configured
-    if (!isFirebaseConfigured()) {
-      setConfigValid(false);
-      setLoading(false);
-      return;
-    }
-
-    // Initialize Firebase lazily
-    const init = async () => {
-      try {
-        const { auth, error } = await initializeFirebase();
-
-        if (error || !auth) {
-          console.error('Firebase init failed:', error);
-          setConfigValid(false);
-          setLoading(false);
-          return;
-        }
-
-        // Import onAuthStateChanged dynamically
-        const { onAuthStateChanged } = await import('firebase/auth');
-
-        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-          if (firebaseUser) {
-            setUser(firebaseUser);
-          } else {
-            clearUser();
-          }
-          setFirebaseReady(true);
-        });
-
-        return () => unsubscribe();
-      } catch (error) {
-        console.error('Firebase setup error:', error);
-        setConfigValid(false);
-        setLoading(false);
-      }
-    };
-
-    init();
+    const unsubscribe = initializeAuth();
+    setIsInitialized(true);
+    return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (loading || !firebaseReady) return;
-
-    // If Firebase is not configured, don't do routing
-    if (!configValid) return;
-
-    const inAuthGroup = segments[0] === '(auth)';
-
-    if (user && inAuthGroup) {
-      // User is logged in but viewing auth screens, redirect to tabs
-      router.replace('/(tabs)');
-    } else if (!user && !inAuthGroup) {
-      // User is not logged in but trying to access protected screens, redirect to login
-      router.replace('/login');
-    }
-  }, [user, segments, loading, firebaseReady, configValid]);
-
-  // Show configuration screen if Firebase is not set up
-  if (!configValid) {
+  // Show loading screen while initializing
+  if (!isInitialized || isLoading) {
     return (
-      <PaperProvider>
-        <ConfigurationScreen />
+      <PaperProvider theme={theme}>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.colors.background }}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
       </PaperProvider>
     );
   }
 
-  if (loading || !firebaseReady) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
-      </View>
-    );
-  }
-
   return (
-    <PaperProvider>
-      <Slot />
-    </PaperProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <PaperProvider theme={theme}>
+        <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+        <Stack screenOptions={{ headerShown: false }}>
+          {user ? (
+            // User is logged in - show main app
+            <>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="list/[id]"
+                options={{
+                  headerShown: true,
+                  title: 'List',
+                  presentation: 'card',
+                }}
+              />
+              <Stack.Screen
+                name="item/new"
+                options={{
+                  headerShown: true,
+                  title: 'Add Item',
+                  presentation: 'modal',
+                }}
+              />
+              <Stack.Screen
+                name="item/[id]"
+                options={{
+                  headerShown: true,
+                  title: 'Item Details',
+                  presentation: 'card',
+                }}
+              />
+            </>
+          ) : (
+            // User is not logged in - show auth screens
+            <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+          )}
+        </Stack>
+      </PaperProvider>
+    </GestureHandlerRootView>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  configContainer: {
-    flexGrow: 1,
-    backgroundColor: '#fff',
-  },
-  configContent: {
-    flex: 1,
-    padding: 24,
-    paddingTop: 60,
-  },
-  configTitle: {
-    color: '#FF9800',
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  configText: {
-    color: '#666',
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  configSteps: {
-    backgroundColor: '#F5F5F5',
-    padding: 16,
-    borderRadius: 8,
-    marginBottom: 24,
-  },
-  configStepTitle: {
-    fontWeight: 'bold',
-    marginBottom: 12,
-    color: '#4CAF50',
-  },
-  configStep: {
-    marginBottom: 8,
-    color: '#333',
-  },
-  configExample: {
-    marginBottom: 24,
-  },
-  configExampleTitle: {
-    fontWeight: 'bold',
-    marginBottom: 8,
-    color: '#666',
-  },
-  codeBlock: {
-    backgroundColor: '#263238',
-    padding: 12,
-    borderRadius: 8,
-  },
-  codeText: {
-    fontFamily: 'monospace',
-    fontSize: 11,
-    color: '#4CAF50',
-  },
-  configHint: {
-    color: '#999',
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-});
