@@ -1,79 +1,229 @@
-import { View, StyleSheet, Alert } from 'react-native';
-import { Text, Button } from 'react-native-paper';
-import { signOut } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
-import { useAuthStore } from '../../store/authStore';
+// Settings screen
+import { useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import {
+  Text,
+  List,
+  Switch,
+  useTheme,
+  Divider,
+  Button,
+  Portal,
+  Dialog,
+  Avatar,
+} from 'react-native-paper';
+import { Ionicons } from '@expo/vector-icons';
+import useAuthStore from '../../store/authStore';
+import useListStore from '../../store/listStore';
 
 export default function SettingsScreen() {
-  const user = useAuthStore((state) => state.user);
+  const theme = useTheme();
+  const { user, userProfile, logout } = useAuthStore();
+  const { cleanup } = useListStore();
+
+  const [darkMode, setDarkMode] = useState(false);
+  const [logoutDialogVisible, setLogoutDialogVisible] = useState(false);
 
   const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      {
-        text: 'Cancel',
-        style: 'cancel',
-      },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await signOut(auth);
-          } catch (error) {
-            console.error('Logout error:', error);
-            Alert.alert('Error', 'Failed to logout. Please try again.');
-          }
-        },
-      },
-    ]);
+    setLogoutDialogVisible(false);
+    cleanup(); // Clean up subscriptions
+    await logout();
+  };
+
+  const getInitials = (name) => {
+    if (!name) return '?';
+    return name
+      .split(' ')
+      .map(word => word[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
-    <View style={styles.container}>
-      <Text variant="headlineMedium">Settings</Text>
-      {user && (
-        <View style={styles.userInfo}>
-          <Text variant="bodyLarge" style={styles.userName}>
-            {user.displayName || 'User'}
-          </Text>
-          <Text variant="bodyMedium" style={styles.userEmail}>
-            {user.email}
-          </Text>
-        </View>
-      )}
-      <Button
-        mode="contained"
-        onPress={handleLogout}
-        style={styles.logoutButton}
-        buttonColor="#F44336"
-      >
-        Logout
-      </Button>
-    </View>
+    <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* Profile Section */}
+      <View style={styles.profileSection}>
+        <Avatar.Text
+          size={80}
+          label={getInitials(user?.displayName || userProfile?.displayName)}
+          style={{ backgroundColor: theme.colors.primary }}
+        />
+        <Text variant="titleLarge" style={styles.profileName}>
+          {user?.displayName || userProfile?.displayName || 'User'}
+        </Text>
+        <Text variant="bodyMedium" style={{ color: theme.colors.onSurfaceVariant }}>
+          {user?.email}
+        </Text>
+      </View>
+
+      <Divider style={styles.divider} />
+
+      {/* Preferences Section */}
+      <List.Section>
+        <List.Subheader>Preferences</List.Subheader>
+
+        <List.Item
+          title="Dark Mode"
+          description="Use dark theme"
+          left={(props) => <List.Icon {...props} icon="brightness-6" />}
+          right={() => (
+            <Switch
+              value={darkMode}
+              onValueChange={setDarkMode}
+              color={theme.colors.primary}
+            />
+          )}
+        />
+
+        <List.Item
+          title="Default Unit"
+          description="Pieces (pcs)"
+          left={(props) => <List.Icon {...props} icon="scale" />}
+          right={(props) => <List.Icon {...props} icon="chevron-right" />}
+          onPress={() => Alert.alert('Coming Soon', 'This feature will be available in the next update.')}
+        />
+
+        <List.Item
+          title="Sort by Category"
+          description="Group items by category"
+          left={(props) => <List.Icon {...props} icon="sort" />}
+          right={() => (
+            <Switch
+              value={true}
+              disabled
+              color={theme.colors.primary}
+            />
+          )}
+        />
+      </List.Section>
+
+      <Divider style={styles.divider} />
+
+      {/* Categories Section */}
+      <List.Section>
+        <List.Subheader>Categories</List.Subheader>
+
+        <List.Item
+          title="Manage Categories"
+          description="Add, edit, or remove categories"
+          left={(props) => <List.Icon {...props} icon="tag-multiple" />}
+          right={(props) => <List.Icon {...props} icon="chevron-right" />}
+          onPress={() => Alert.alert('Coming Soon', 'Category management will be available in the next update.')}
+        />
+      </List.Section>
+
+      <Divider style={styles.divider} />
+
+      {/* Data Section */}
+      <List.Section>
+        <List.Subheader>Data</List.Subheader>
+
+        <List.Item
+          title="Export Data"
+          description="Download your lists and pantry"
+          left={(props) => <List.Icon {...props} icon="download" />}
+          right={(props) => <List.Icon {...props} icon="chevron-right" />}
+          onPress={() => Alert.alert('Coming Soon', 'Data export will be available in the next update.')}
+        />
+
+        <List.Item
+          title="Clear All Data"
+          description="Delete all lists and pantry items"
+          left={(props) => <List.Icon {...props} icon="delete-sweep" color={theme.colors.error} />}
+          onPress={() => {
+            Alert.alert(
+              'Clear All Data',
+              'This will permanently delete all your lists and pantry items. This action cannot be undone.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete Everything',
+                  style: 'destructive',
+                  onPress: () => Alert.alert('Coming Soon', 'This feature will be available in the next update.'),
+                },
+              ]
+            );
+          }}
+        />
+      </List.Section>
+
+      <Divider style={styles.divider} />
+
+      {/* About Section */}
+      <List.Section>
+        <List.Subheader>About</List.Subheader>
+
+        <List.Item
+          title="Version"
+          description="1.0.0"
+          left={(props) => <List.Icon {...props} icon="information" />}
+        />
+
+        <List.Item
+          title="Privacy Policy"
+          left={(props) => <List.Icon {...props} icon="shield-account" />}
+          right={(props) => <List.Icon {...props} icon="chevron-right" />}
+          onPress={() => Alert.alert('Privacy Policy', 'Your data is stored securely in Firebase and is only accessible to you.')}
+        />
+      </List.Section>
+
+      <Divider style={styles.divider} />
+
+      {/* Logout Button */}
+      <View style={styles.logoutSection}>
+        <Button
+          mode="outlined"
+          onPress={() => setLogoutDialogVisible(true)}
+          icon="logout"
+          textColor={theme.colors.error}
+          style={[styles.logoutButton, { borderColor: theme.colors.error }]}
+        >
+          Log Out
+        </Button>
+      </View>
+
+      {/* Logout Confirmation Dialog */}
+      <Portal>
+        <Dialog visible={logoutDialogVisible} onDismiss={() => setLogoutDialogVisible(false)}>
+          <Dialog.Title>Log Out</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium">
+              Are you sure you want to log out? Your data will still be saved.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setLogoutDialogVisible(false)}>Cancel</Button>
+            <Button onPress={handleLogout} textColor={theme.colors.error}>
+              Log Out
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 24,
-    backgroundColor: '#fff',
   },
-  userInfo: {
-    marginTop: 24,
-    marginBottom: 32,
-    padding: 16,
-    backgroundColor: '#F5F5F5',
-    borderRadius: 8,
+  profileSection: {
+    alignItems: 'center',
+    paddingVertical: 32,
   },
-  userName: {
+  profileName: {
+    marginTop: 16,
     fontWeight: 'bold',
-    marginBottom: 4,
   },
-  userEmail: {
-    color: '#666',
+  divider: {
+    marginVertical: 8,
+  },
+  logoutSection: {
+    padding: 24,
+    paddingBottom: 48,
   },
   logoutButton: {
-    marginTop: 16,
+    borderWidth: 1,
   },
 });

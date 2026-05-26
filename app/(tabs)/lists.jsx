@@ -1,228 +1,232 @@
-import { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
+// Lists screen - manage all grocery lists
+import { useState, useCallback } from 'react';
+import { View, StyleSheet, FlatList, RefreshControl, Alert } from 'react-native';
 import {
   Text,
   FAB,
+  useTheme,
   Card,
   IconButton,
-  TextInput,
-  Button,
   Portal,
   Dialog,
+  TextInput,
+  Button,
   ActivityIndicator,
 } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthStore } from '../../store/authStore';
-import { useListStore } from '../../store/listStore';
-import { createList, subscribeToLists, deleteList } from '../../lib/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import useAuthStore from '../../store/authStore';
+import useListStore from '../../store/listStore';
 
 export default function ListsScreen() {
+  const theme = useTheme();
   const router = useRouter();
-  const user = useAuthStore((state) => state.user);
-  const { lists, setLists, setActiveListId, activeListId } = useListStore();
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuthStore();
+  const {
+    lists,
+    activeListId,
+    isLoading,
+    addList,
+    editList,
+    removeList,
+    setActiveList,
+  } = useListStore();
+
+  const [refreshing, setRefreshing] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
-  const [newListName, setNewListName] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [editingList, setEditingList] = useState(null);
+  const [listName, setListName] = useState('');
 
-  useEffect(() => {
-    if (!user) return;
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    // Lists auto-refresh via subscription
+    setTimeout(() => setRefreshing(false), 500);
+  }, []);
 
-    // Load active list ID from AsyncStorage
-    AsyncStorage.getItem('activeListId').then((id) => {
-      if (id) setActiveListId(id);
-    });
-
-    // Subscribe to lists in real-time
-    const unsubscribe = subscribeToLists(user.uid, (fetchedLists) => {
-      setLists(fetchedLists);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [user]);
-
-  const handleCreateList = async () => {
-    if (!newListName.trim()) {
-      Alert.alert('Error', 'Please enter a list name');
-      return;
-    }
-
-    setCreating(true);
-    try {
-      const listId = await createList(user.uid, {
-        name: newListName.trim(),
-      });
-
-      // Set as active list
-      setActiveListId(listId);
-      await AsyncStorage.setItem('activeListId', listId);
-
-      setNewListName('');
-      setDialogVisible(false);
-      Alert.alert('Success', 'List created successfully!');
-    } catch (error) {
-      console.error('Error creating list:', error);
-      Alert.alert('Error', 'Failed to create list. Please try again.');
-    } finally {
-      setCreating(false);
-    }
+  const openCreateDialog = () => {
+    setEditingList(null);
+    setListName('');
+    setDialogVisible(true);
   };
 
-  const handleSetActiveList = async (listId) => {
-    setActiveListId(listId);
-    await AsyncStorage.setItem('activeListId', listId);
+  const openEditDialog = (list) => {
+    setEditingList(list);
+    setListName(list.name);
+    setDialogVisible(true);
   };
 
-  const handleDeleteList = (listId, listName) => {
+  const handleSaveList = async () => {
+    if (!listName.trim()) return;
+
+    if (editingList) {
+      // Update existing list
+      await editList(user.uid, editingList.id, { name: listName.trim() });
+    } else {
+      // Create new list
+      await addList(user.uid, listName.trim());
+    }
+
+    setDialogVisible(false);
+    setListName('');
+    setEditingList(null);
+  };
+
+  const handleDeleteList = (list) => {
     Alert.alert(
       'Delete List',
-      `Are you sure you want to delete "${listName}"? This will also delete all items in this list.`,
+      `Are you sure you want to delete "${list.name}"? This will also delete all items in the list.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            try {
-              await deleteList(user.uid, listId);
-              Alert.alert('Success', 'List deleted successfully');
-            } catch (error) {
-              console.error('Error deleting list:', error);
-              Alert.alert('Error', 'Failed to delete list');
-            }
+            await removeList(user.uid, list.id);
           },
         },
       ]
     );
   };
 
-  const handleOpenList = (listId) => {
-    router.push(`/list/${listId}`);
+  const handleSelectList = async (list) => {
+    await setActiveList(user.uid, list.id);
+    router.push('/');
   };
 
-  const renderListItem = ({ item }) => {
-    const isActive = item.listId === activeListId || item.id === activeListId;
+  const formatDate = (timestamp) => {
+    if (!timestamp) return '';
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const renderListCard = ({ item: list }) => {
+    const isActive = list.id === activeListId;
 
     return (
-      <Card style={styles.listCard} mode="elevated">
-        <TouchableOpacity onPress={() => handleOpenList(item.listId || item.id)}>
-          <Card.Content>
-            <View style={styles.listHeader}>
-              <View style={styles.listInfo}>
-                <View style={styles.listTitleRow}>
-                  <Text variant="titleLarge" style={styles.listTitle}>
-                    {item.name}
-                  </Text>
-                  {isActive && (
-                    <View style={styles.activeBadge}>
-                      <Text style={styles.activeBadgeText}>Active</Text>
-                    </View>
-                  )}
-                </View>
-                <Text variant="bodyMedium" style={styles.listMeta}>
-                  {item.itemCount || 0} items
+      <Card
+        style={[
+          styles.listCard,
+          isActive && { borderColor: theme.colors.primary, borderWidth: 2 },
+        ]}
+        mode="elevated"
+        onPress={() => handleSelectList(list)}
+      >
+        <Card.Content style={styles.cardContent}>
+          <View style={styles.cardMain}>
+            <View style={styles.cardInfo}>
+              <View style={styles.titleRow}>
+                <Text variant="titleMedium" style={styles.listName}>
+                  {list.name}
                 </Text>
-                {item.updatedAt && (
-                  <Text variant="bodySmall" style={styles.listDate}>
-                    Updated:{' '}
-                    {item.updatedAt?.toDate
-                      ? item.updatedAt.toDate().toLocaleDateString()
-                      : 'Recently'}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.listActions}>
-                {!isActive && (
-                  <IconButton
-                    icon="star-outline"
-                    size={24}
-                    onPress={() => handleSetActiveList(item.listId || item.id)}
+                {isActive && (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={20}
+                    color={theme.colors.primary}
                   />
                 )}
-                <IconButton
-                  icon="delete-outline"
-                  size={24}
-                  iconColor="#F44336"
-                  onPress={() =>
-                    handleDeleteList(item.listId || item.id, item.name)
-                  }
-                />
               </View>
+              <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
+                {list.itemCount || 0} items • Updated {formatDate(list.updatedAt)}
+              </Text>
             </View>
-          </Card.Content>
-        </TouchableOpacity>
+            <View style={styles.cardActions}>
+              <IconButton
+                icon="pencil"
+                size={20}
+                onPress={() => openEditDialog(list)}
+              />
+              <IconButton
+                icon="delete"
+                size={20}
+                iconColor={theme.colors.error}
+                onPress={() => handleDeleteList(list)}
+              />
+            </View>
+          </View>
+        </Card.Content>
       </Card>
     );
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <Ionicons name="list-outline" size={80} color="#CCC" />
-      <Text variant="headlineSmall" style={styles.emptyTitle}>
-        No Lists Yet
-      </Text>
-      <Text variant="bodyLarge" style={styles.emptyText}>
-        Create your first grocery list to get started
-      </Text>
-    </View>
-  );
-
-  if (loading) {
+  if (isLoading && lists.length === 0) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4CAF50" />
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <Text style={{ marginTop: 16 }}>Loading lists...</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={lists}
-        keyExtractor={(item) => item.listId || item.id}
-        renderItem={renderListItem}
-        contentContainerStyle={
-          lists.length === 0 ? styles.emptyContainer : styles.listContainer
-        }
-        ListEmptyComponent={renderEmptyState}
-      />
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {lists.length === 0 ? (
+        <View style={styles.centered}>
+          <Ionicons name="list-outline" size={80} color={theme.colors.primary} />
+          <Text variant="headlineSmall" style={styles.emptyTitle}>
+            No Lists Yet
+          </Text>
+          <Text
+            variant="bodyMedium"
+            style={[styles.emptySubtitle, { color: theme.colors.onSurfaceVariant }]}
+          >
+            Create your first grocery list
+          </Text>
+          <Button
+            mode="contained"
+            onPress={openCreateDialog}
+            style={{ marginTop: 24 }}
+            icon="plus"
+          >
+            Create List
+          </Button>
+        </View>
+      ) : (
+        <FlatList
+          data={lists}
+          keyExtractor={(item) => item.id}
+          renderItem={renderListCard}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      )}
 
-      <FAB
-        icon="plus"
-        style={styles.fab}
-        onPress={() => setDialogVisible(true)}
-        label="New List"
-      />
+      {/* FAB to create new list */}
+      {lists.length > 0 && (
+        <FAB
+          icon="plus"
+          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          color={theme.colors.onPrimary}
+          onPress={openCreateDialog}
+        />
+      )}
 
+      {/* Create/Edit List Dialog */}
       <Portal>
         <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
-          <Dialog.Title>Create New List</Dialog.Title>
+          <Dialog.Title>
+            {editingList ? 'Edit List' : 'New List'}
+          </Dialog.Title>
           <Dialog.Content>
             <TextInput
               label="List Name"
-              value={newListName}
-              onChangeText={setNewListName}
+              value={listName}
+              onChangeText={setListName}
               mode="outlined"
               placeholder="e.g., Weekly Groceries"
               autoFocus
-              disabled={creating}
             />
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setDialogVisible(false)} disabled={creating}>
-              Cancel
-            </Button>
-            <Button onPress={handleCreateList} loading={creating}>
-              Create
+            <Button onPress={() => setDialogVisible(false)}>Cancel</Button>
+            <Button onPress={handleSaveList} disabled={!listName.trim()}>
+              {editingList ? 'Save' : 'Create'}
             </Button>
           </Dialog.Actions>
         </Dialog>
@@ -234,84 +238,52 @@ export default function ListsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
   },
-  loadingContainer: {
+  centered: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    padding: 24,
   },
-  listContainer: {
+  listContent: {
     padding: 16,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingBottom: 100,
   },
   listCard: {
     marginBottom: 12,
-    backgroundColor: '#fff',
   },
-  listHeader: {
+  cardContent: {
+    paddingVertical: 8,
+  },
+  cardMain: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  listInfo: {
+  cardInfo: {
     flex: 1,
   },
-  listTitleRow: {
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4,
+    gap: 8,
   },
-  listTitle: {
-    fontWeight: 'bold',
-    marginRight: 8,
+  listName: {
+    fontWeight: '600',
   },
-  activeBadge: {
-    backgroundColor: '#4CAF50',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  activeBadgeText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  listMeta: {
-    color: '#666',
-    marginBottom: 2,
-  },
-  listDate: {
-    color: '#999',
-    fontSize: 12,
-  },
-  listActions: {
+  cardActions: {
     flexDirection: 'row',
-    alignItems: 'center',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 32,
   },
   emptyTitle: {
     marginTop: 16,
-    marginBottom: 8,
-    color: '#666',
+    fontWeight: 'bold',
   },
-  emptyText: {
-    color: '#999',
+  emptySubtitle: {
+    marginTop: 8,
     textAlign: 'center',
   },
   fab: {
     position: 'absolute',
-    margin: 16,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#4CAF50',
+    right: 16,
+    bottom: 16,
   },
 });
