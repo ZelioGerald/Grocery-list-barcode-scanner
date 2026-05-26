@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { TextInput, Button, Text, ActivityIndicator } from 'react-native-paper';
 import { useRouter, Link } from 'expo-router';
-import { signInWithEmailAndPassword, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth, isFirebaseConfigured } from '../../lib/firebase';
 import { StatusBar } from 'expo-status-bar';
 
 export default function LoginScreen() {
@@ -14,6 +14,14 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
+    if (!isFirebaseConfigured() || !auth) {
+      Alert.alert(
+        'Firebase Not Configured',
+        'Please configure Firebase credentials in your .env file and restart the app.'
+      );
+      return;
+    }
+
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;

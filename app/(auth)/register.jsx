@@ -4,7 +4,7 @@ import { TextInput, Button, Text, ActivityIndicator } from 'react-native-paper';
 import { useRouter, Link } from 'expo-router';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, collection } from 'firebase/firestore';
-import { auth, db } from '../../lib/firebase';
+import { auth, db, isFirebaseConfigured } from '../../lib/firebase';
 import { DEFAULT_CATEGORIES } from '../../lib/constants';
 import { StatusBar } from 'expo-status-bar';
 
@@ -19,6 +19,8 @@ export default function RegisterScreen() {
   const router = useRouter();
 
   const seedDefaultCategories = async (userId) => {
+    if (!db) return;
+
     try {
       const categoriesRef = collection(db, 'users', userId, 'categories');
 
@@ -38,6 +40,14 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
+    if (!isFirebaseConfigured() || !auth || !db) {
+      Alert.alert(
+        'Firebase Not Configured',
+        'Please configure Firebase credentials in your .env file and restart the app.'
+      );
+      return;
+    }
+
     if (!name || !email || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
