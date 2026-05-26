@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { TextInput, Button, Text, ActivityIndicator } from 'react-native-paper';
 import { useRouter, Link } from 'expo-router';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth, isFirebaseConfigured } from '../../lib/firebase';
+import { isFirebaseConfigured, getAuth } from '../../lib/firebase';
 import { StatusBar } from 'expo-status-bar';
 
 export default function LoginScreen() {
@@ -14,11 +13,17 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
-    if (!isFirebaseConfigured() || !auth) {
+    if (!isFirebaseConfigured()) {
       Alert.alert(
         'Firebase Not Configured',
         'Please configure Firebase credentials in your .env file and restart the app.'
       );
+      return;
+    }
+
+    const auth = getAuth();
+    if (!auth) {
+      Alert.alert('Error', 'Firebase is not initialized. Please restart the app.');
       return;
     }
 
@@ -29,6 +34,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
+      const { signInWithEmailAndPassword } = await import('firebase/auth');
       await signInWithEmailAndPassword(auth, email, password);
       // Navigation handled by auth listener
     } catch (error) {
@@ -52,8 +58,6 @@ export default function LoginScreen() {
   };
 
   const handleGoogleSignIn = async () => {
-    // TODO: Implement Google Sign-In in future update
-    // For now, we'll show a placeholder message
     Alert.alert(
       'Coming Soon',
       'Google Sign-In will be available in a future update. Please use email/password for now.'

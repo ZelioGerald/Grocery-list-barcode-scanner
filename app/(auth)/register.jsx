@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { TextInput, Button, Text, ActivityIndicator } from 'react-native-paper';
 import { useRouter, Link } from 'expo-router';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, collection } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from '../../lib/firebase';
+import { isFirebaseConfigured, getAuth, getDb } from '../../lib/firebase';
 import { DEFAULT_CATEGORIES } from '../../lib/constants';
 import { StatusBar } from 'expo-status-bar';
 
@@ -19,9 +17,11 @@ export default function RegisterScreen() {
   const router = useRouter();
 
   const seedDefaultCategories = async (userId) => {
+    const db = getDb();
     if (!db) return;
 
     try {
+      const { doc, setDoc, collection } = await import('firebase/firestore');
       const categoriesRef = collection(db, 'users', userId, 'categories');
 
       const categoryPromises = DEFAULT_CATEGORIES.map((category) => {
@@ -40,11 +40,19 @@ export default function RegisterScreen() {
   };
 
   const handleRegister = async () => {
-    if (!isFirebaseConfigured() || !auth || !db) {
+    if (!isFirebaseConfigured()) {
       Alert.alert(
         'Firebase Not Configured',
         'Please configure Firebase credentials in your .env file and restart the app.'
       );
+      return;
+    }
+
+    const auth = getAuth();
+    const db = getDb();
+
+    if (!auth || !db) {
+      Alert.alert('Error', 'Firebase is not initialized. Please restart the app.');
       return;
     }
 
@@ -65,6 +73,9 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
+      const { createUserWithEmailAndPassword, updateProfile } = await import('firebase/auth');
+      const { doc, setDoc } = await import('firebase/firestore');
+
       // Create user account
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;

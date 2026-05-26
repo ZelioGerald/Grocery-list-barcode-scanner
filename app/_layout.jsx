@@ -1,11 +1,10 @@
 import 'react-native-gesture-handler';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Slot, useRouter, useSegments } from 'expo-router';
-import { PaperProvider, Text, Button } from 'react-native-paper';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth, isFirebaseConfigured } from '../lib/firebase';
+import { PaperProvider, Text } from 'react-native-paper';
 import { useAuthStore } from '../store/authStore';
-import { View, ActivityIndicator, StyleSheet, ScrollView, Linking } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, ScrollView } from 'react-native';
+import { isFirebaseConfigured, initializeFirebase, getAuth } from '../lib/firebase';
 
 function ConfigurationScreen() {
   return (
@@ -67,36 +66,57 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
   const { user, loading, setUser, clearUser, setLoading } = useAuthStore();
+  const [firebaseReady, setFirebaseReady] = useState(false);
+  const [configValid, setConfigValid] = useState(true);
 
   useEffect(() => {
-    // If Firebase is not configured, stop loading
+    // Check if Firebase is configured
     if (!isFirebaseConfigured()) {
+      setConfigValid(false);
       setLoading(false);
       return;
     }
 
-    // If auth is not available, stop loading
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
+    // Initialize Firebase lazily
+    const init = async () => {
+      try {
+        const { auth, error } = await initializeFirebase();
 
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      if (firebaseUser) {
-        setUser(firebaseUser);
-      } else {
-        clearUser();
+        if (error || !auth) {
+          console.error('Firebase init failed:', error);
+          setConfigValid(false);
+          setLoading(false);
+          return;
+        }
+
+        // Import onAuthStateChanged dynamically
+        const { onAuthStateChanged } = await import('firebase/auth');
+
+        const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+          if (firebaseUser) {
+            setUser(firebaseUser);
+          } else {
+            clearUser();
+          }
+          setFirebaseReady(true);
+        });
+
+        return () => unsubscribe();
+      } catch (error) {
+        console.error('Firebase setup error:', error);
+        setConfigValid(false);
+        setLoading(false);
       }
-    });
+    };
 
-    return () => unsubscribe();
+    init();
   }, []);
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || !firebaseReady) return;
 
     // If Firebase is not configured, don't do routing
-    if (!isFirebaseConfigured()) return;
+    if (!configValid) return;
 
     const inAuthGroup = segments[0] === '(auth)';
 
@@ -107,10 +127,10 @@ export default function RootLayout() {
       // User is not logged in but trying to access protected screens, redirect to login
       router.replace('/login');
     }
-  }, [user, segments, loading]);
+  }, [user, segments, loading, firebaseReady, configValid]);
 
   // Show configuration screen if Firebase is not set up
-  if (!isFirebaseConfigured()) {
+  if (!configValid) {
     return (
       <PaperProvider>
         <ConfigurationScreen />
@@ -118,7 +138,7 @@ export default function RootLayout() {
     );
   }
 
-  if (loading) {
+  if (loading || !firebaseReady) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#4CAF50" />
